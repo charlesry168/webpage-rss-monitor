@@ -47,6 +47,8 @@ class MonitorCreate(BaseModel):
     check_interval: int = 3600
     css_selector: Optional[str] = None
     api_key: Optional[str] = None
+    webhook_url: Optional[str] = None
+    webhook_secret: Optional[str] = None
 
 
 class MonitorResponse(BaseModel):
@@ -59,6 +61,7 @@ class MonitorResponse(BaseModel):
     last_changed: Optional[datetime]
     is_active: bool
     css_selector: Optional[str]
+    webhook_url: Optional[str]
 
     class Config:
         from_attributes = True
@@ -69,6 +72,8 @@ class MonitorUpdate(BaseModel):
     check_interval: Optional[int] = None
     css_selector: Optional[str] = None
     is_active: Optional[bool] = None
+    webhook_url: Optional[str] = None
+    webhook_secret: Optional[str] = None
 
 
 # --- Routes ---
@@ -86,6 +91,8 @@ async def create_monitor(payload: MonitorCreate, db: Session = Depends(get_db)):
         check_interval=payload.check_interval,
         css_selector=payload.css_selector,
         api_key=payload.api_key,
+        webhook_url=payload.webhook_url,
+        webhook_secret=payload.webhook_secret,
     )
     db.add(monitor)
     db.commit()
@@ -131,6 +138,10 @@ def update_monitor(monitor_id: str, payload: MonitorUpdate, db: Session = Depend
             unschedule_monitor(monitor.id)
         else:
             schedule_monitor(monitor.id, monitor.check_interval)
+    if payload.webhook_url is not None:
+        monitor.webhook_url = payload.webhook_url
+    if payload.webhook_secret is not None:
+        monitor.webhook_secret = payload.webhook_secret
 
     db.commit()
     db.refresh(monitor)

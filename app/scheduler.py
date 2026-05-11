@@ -1,12 +1,41 @@
+import hashlib
+import hmac
+import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import httpx
 from sqlalchemy.orm import Session
 from app.database import SessionLocal, Monitor, Snapshot
 from app.scraper import fetch_page, compute_diff
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
+
+
+async def fire_webhook(monitor: Monitor, snapshot: "Snapshot", diff_summary: str):
+    if not monitor.webhook_url:
+        return
+    payload = {
+        "event": "change_detected",
+        "monitor_id": monitor.id,
+        "monitor_name": monitor.name,
+        "url": monitor.url,
+        "detected_at": datetime.now(timezone.utc).isoformat(),
+        "diff_summary": diff_summary,
+        "snapshot_id": snapshot.id,
+    }
+    body = json.dumps(payload, default=str).encode()
+    req_headers = {"Content-Type": "application/json", "User-Agent": "webpage-rss-monitor/1.0"}
+    if monitor.webhook_secret:
+        sig = hmac.new(monitor.webhook_secret.encode(), body, hashlib.sha256).hexdigest()
+        req_headers["X-Webhook-Signature"] = f"sha256={sig}"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(monitor.webhook_url, content=body, headers=req_headers)
+            logger.info(f"Webhook fired for {monitor.id}: HTTP {resp.status_code}")
+    except Exception as exc:
+        logger.warning(f"Webhook failed for {monitor.id}: {exc}")
 
 
 async def check_monitor(monitor_id: str):
@@ -37,8 +66,12 @@ async def check_monitor(monitor_id: str):
                 diff_summary=diff_summary,
             )
             db.add(snap)
+            db.flush()
             monitor.last_changed = datetime.utcnow()
             logger.info(f"Change detected for monitor {monitor_id}")
+            db.commit()
+            await fire_webhook(monitor, snap, diff_summary)
+            return
 
         db.commit()
     except Exception as e:

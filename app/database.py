@@ -25,6 +25,8 @@ class Monitor(Base):
     is_active = Column(Boolean, default=True)
     css_selector = Column(String, nullable=True)
     api_key = Column(String, nullable=True)
+    webhook_url = Column(String, nullable=True)
+    webhook_secret = Column(String, nullable=True)
 
 
 class Snapshot(Base):
